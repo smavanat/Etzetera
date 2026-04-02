@@ -259,7 +259,7 @@ pub const text_buffer = struct {
     /// Adds an empty line to the bottom of the screen
     /// Moves the cursor down one line, scrolling if necessary
     pub fn createNewLine(self: *text_buffer, gpa: std.mem.Allocator) !bool {
-        if (self.cursorY != self.scrollback.items.len - 1 or self.bottomIndex != self.scrollback.items.len - 1) return false; //Early exit when not at the bottom of the screen
+        // if (self.cursorY != self.scrollback.items.len - 1 or self.bottomIndex != self.scrollback.items.len - 1) return false; //Early exit when not at the bottom of the screen
 
         try self.addNewLine(gpa);
         return true;
@@ -268,13 +268,13 @@ pub const text_buffer = struct {
     /// Clears the lines from the screen. Does not remove anything from the scrollback
     pub fn clearScreen(self: *text_buffer, gpa: std.mem.Allocator) !void {
         try self.addNewLine(gpa);
-        try self.screen.clear();
+        try self.screen.clear(gpa);
         const nline_ptr = try gpa.create(terminal_line);
         nline_ptr.* = try terminal_line.init(self.width, false, gpa);
-        try self.screen.addToFront(nline_ptr);
-
-        self.cursorX = 0;
-        self.cursorY = 0;
+        try self.screen.addToFront(nline_ptr, gpa);
+        //
+        // self.cursorX = 0;
+        // self.cursorY = 0;
     }
 
     /// Clears all data in screen and scrollback buffers and resets the cursor position
@@ -282,10 +282,10 @@ pub const text_buffer = struct {
         self.scrollback.clearRetainingCapacity();
         self.screen.clear(gpa);
         self.addLine();
-
-        //Resetting cursor position
-        self.cursorX = 0;
-        self.cursorY = 0;
+        //
+        // //Resetting cursor position
+        // self.cursorX = 0;
+        // self.cursorY = 0;
     }
 
     // =============== TEXT EDITING ==================
@@ -298,7 +298,7 @@ pub const text_buffer = struct {
     /// @return true if the text was inserted, false if the cursor is not at the bottom line
     pub fn insertText(self: *text_buffer, text: u8, gpa: std.mem.Allocator) !bool {
         const line: *scroll_line = self.scrollback.items[self.cursorY];
-        if (self.cursorY != self.scrollback.items.len - 1 or self.bottomIndex != self.scrollback.items.len - 1) return false;
+        // if (self.cursorY != self.scrollback.items.len - 1 or self.bottomIndex != self.scrollback.items.len - 1) return false;
 
         const oldLines: u32 = self.logicalToTerminal(self.cursorY);
 
@@ -336,8 +336,9 @@ pub const text_buffer = struct {
     /// @return true on successful removal, false if it is not at the bottom line in the scrollback or if there is no char to erase
     pub fn deleteText(self: *text_buffer, gpa: std.mem.Allocator) !bool {
         const line: *scroll_line = self.scrollback.items[self.cursorY];
-        if(self.cursorY != self.scrollback.items.len-1 or self.bottomIndex != self.scrollback.items.len-1 or self.cursorX <= 0
-            or self.cursorX <= line.minXPos) return false;
+        // if(self.cursorY != self.scrollback.items.len-1 or self.bottomIndex != self.scrollback.items.len-1 or self.cursorX <= 0
+        //     or self.cursorX <= line.minXPos) return false;
+        if(self.cursorX <= 0 or self.cursorX <= line.minXPos) return false;
 
         var oldLines: u32 = self.logicalToTerminal(self.cursorY);
         if(self.cursorX != 0 and self.cursorX % self.width == 0) oldLines += 1; //Technically if the cursor wraps around to a new line the line takes up an extra screen line

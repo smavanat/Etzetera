@@ -23,8 +23,10 @@ var pts: *pty.PTY = undefined;
 var ansi_p : *ap.ansi_parser = undefined;
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
-//TODO: PARSE UNICODE
+//TODO: RE-WRITE TERMINAL SO CURSOR CAN ONLY MOVE IN THE SCREEN, NO SCROLLING
 //      PARSE ANSI CODES
+//      SUPPORT FOR SWITCHING FROM ASCII TO 'Special Characters' CHARSET
+//      PARSE UNICODE
 //      SYNTAX HIGHLIGHTING
 //      CROSS PLATFORM SUPPORT
 //      CLIPBOARD SUPPORT

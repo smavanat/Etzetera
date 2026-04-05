@@ -19,7 +19,11 @@ pub const c0_controls = enum (u8) {
 
 /// Sequences that can follow ESC if the byte is in the range 0x80 to 0x9F. Usually only need to use the CSI code (usually represented by [)
 /// Other sequences are rarely implemented. More info here: https://en.wikipedia.org/wiki/ANSI_escape_code#Fe_Escape_sequences
-pub const fe_escape_sequences = enum (u8) {
+pub const escape_sequences = enum (u8) {
+    SGR7= 0x37, //Save cursor position and attributes (^[7)
+    SGR8= 0x38, //Load cursor position and attributes (^[8)
+    IND = 0x44, //Move/scroll window up one line (^[D)
+    RI  = 0x4D, //Move/scroll window down one line (^[M)
     SS2 = 0x4E, //Single shift two (^[N)
     SS3 = 0x4F, //Single shift three (^[0)
     DCS = 0x50, //Device control string (^[P)
@@ -57,7 +61,6 @@ pub const ansi_parser = struct {
             const n = termz_c.read(pts.master, &self.bytes[0], self.bytes.len);
             //Data to read
             if(n > 0) {
-                var current_param: u32 = 0;
                 var args: std.ArrayList(u32) = try std.ArrayList(u32).initCapacity(gpa, 32);
                 defer args.deinit(gpa);
 
@@ -67,7 +70,10 @@ pub const ansi_parser = struct {
                         if(self.state == parser_state.NORMAL) {
                             switch(b) {
                                 @intFromEnum(c0_controls.BS)  => {_=try self.text_buf.deleteText(gpa);},
-                                @intFromEnum(c0_controls.HT)  => {try self.text_buf.screenToLogical(self.text_buf.getScreenCursorY(), self.text_buf.getScreenCursorX() + 4, gpa);},
+                                @intFromEnum(c0_controls.HT)  => {
+                                    const nextX = self.text_buf.getScreenCursorX() + (4 - (self.text_buf.getScreenCursorX() % 4));
+                                    try self.text_buf.screenToLogical(self.text_buf.getScreenCursorY(), nextX, gpa);
+                                },
                                 @intFromEnum(c0_controls.LF)  => {try self.text_buf.createNewLine(gpa);},
                                 @intFromEnum(c0_controls.VT)  => {try self.text_buf.screenToLogical(self.text_buf.getScreenCursorY() + 4, self.text_buf.getScreenCursorX(), gpa);},
                                 @intFromEnum(c0_controls.FF)  => {try self.text_buf.clearScreen();},
@@ -78,23 +84,35 @@ pub const ansi_parser = struct {
                         }
                         else if(self.state == parser_state.ESCAPE) {
                             switch (b) {
-                                @intFromEnum(fe_escape_sequences.CSI) => {self.state = parser_state.ESCAPE_CSI; args.clearRetainingCapacity();},
+                                @intFromEnum(escape_sequences.SGR7)=> {self.text_buf.saveCursorPos();},
+                                @intFromEnum(escape_sequences.SGR8)=> {self.text_buf.loadCursorPos();},
+                                @intFromEnum(escape_sequences.IND) => {
+                                    const newY: i32 = @max(0, @as(i32, @intCast(self.text_buf.getScreenCursorY())) + 1);
+                                    try self.text_buf.screenToLogical(@intCast(newY), self.text_buf.getScreenCursorX(), gpa);
+                                },
+                                @intFromEnum(escape_sequences.RI) => {
+                                    const newY: i32 = @max(0, @as(i32, @intCast(self.text_buf.getScreenCursorY())) - 1);
+                                    try self.text_buf.screenToLogical(@intCast(newY), self.text_buf.getScreenCursorX(), gpa);
+                                },
+                                @intFromEnum(escape_sequences.CSI) => {self.state = parser_state.ESCAPE_CSI; args.clearRetainingCapacity();},
                                 else => {
                                     std.debug.print("Unsupported Code: {c}\n", .{b});
                                     return;
-                                    // const error_msg = " Unsupported Code " ++ b;
-                                    // for(0..error_msg.len) |c| {
-                                    //     _=try self.text_buf.insertText(c, gpa);
-                                    // }
                                 }
                             }
                         }
                         else if(self.state == parser_state.ESCAPE_CSI) {
                             //Parameter byte
                             if (0x30 <= b and b <= 0x3F) {
+                                if(args.items.len == 0) try args.append(gpa, 0);
                                 switch(b) {
-                                    '0'...'9' => current_param = current_param * 10 + (b - '0'),
-                                    ';' => try args.insert(gpa, 1, current_param),
+                                    '0'...'9' => {
+                                        var current_param = args.items[args.items.len-1];
+                                        current_param = current_param * 10 + (b - '0');
+                                        args.items[args.items.len-1] = current_param;
+
+                                    },
+                                    ';' => try args.append(gpa, 0),
                                     else => {} //Should not happen
                                 }
                             }
@@ -177,11 +195,22 @@ pub const ansi_parser = struct {
                                             args.clearRetainingCapacity();
                                         }
                                     },
-                                    //ESC[M: move cursor one line up
-                                    'M' => {
-                                        const newY: i32 = @max(0, @as(i32, @intCast(self.text_buf.getScreenCursorY())) - 1);
-                                        try self.text_buf.screenToLogical(@intCast(newY), self.text_buf.getScreenCursorX(), gpa);
-                                        args.clearRetainingCapacity();
+                                    //ESC[s: saves the cursor position
+                                    's' => {
+                                        self.text_buf.saveCursorPos();
+                                    },
+                                    //ESC[u: loads the saved cursor position
+                                    'u' => {
+                                        self.text_buf.loadCursorPos();
+                                    },
+                                    //ESC[6n: queries the current cursor position
+                                    'n' => {
+                                        if(args.items.len > 0 and args.items[args.items.len-1] == 6) {
+                                            //Need to write the response to the pty in the form ESC[{Row};{Column}R
+                                            var buf: [256]u8 = undefined;
+                                            const msg = try std.fmt.bufPrint(&buf, "\x1b[{d};{d}R", .{self.text_buf.getScreenCursorY()+1, self.text_buf.getScreenCursorX()+1});
+                                            _=pts.write(msg);
+                                        }
                                     },
 
                                     //========================= ERASE FUNCTIONS ======================

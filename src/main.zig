@@ -26,8 +26,7 @@ var pts: *pty.PTY = undefined;
 var ansi_p : *ap.ansi_parser = undefined;
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
-//TODO: PARSE ANSI CODES
-//      SUPPORT FOR SWITCHING FROM ASCII TO 'Special Characters' CHARSET
+//TODO: PARSE ANSI CODES - COLOURS, CURSOR POSITION, VT100 COMPATABILITY
 //      PARSE UNICODE
 //      SYNTAX HIGHLIGHTING
 //      CROSS PLATFORM SUPPORT

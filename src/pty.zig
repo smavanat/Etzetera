@@ -99,4 +99,9 @@ pub const PTY = struct {
         std.debug.print("error: fork()", .{});
         return false;
     }
+
+    /// Writes a message to the pty and returns the number of bytes written
+    pub fn write(self: *PTY, msg: []u8) usize {
+        return std.os.linux.write(self.master, @ptrCast(&msg[0]), msg.len);
+    }
 };

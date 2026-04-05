@@ -196,6 +196,8 @@ pub const text_buffer = struct {
     height: u32,
     cursorX: u32,
     cursorY: u32,
+    savedCursorX: u32,
+    savedCursorY: u32,
     bottomIndex: u32, //Index of the bottom line on the screen in the scrollback
     bottomOffset: u32, //How many on-screen lines the bottom line currently takes up (could be less than its full size if its paritally on the screen)
     backgroundColour: *mu.vec4, //Default background colour of the screen
@@ -233,7 +235,7 @@ pub const text_buffer = struct {
         const fc_ptr = try gpa.create(mu.vec4);
         fc_ptr.* = mu.vec4.init(1.0, 1.0, 1.0, 1.0);
 
-        return text_buffer{ .width = w, .height = h, .cursorX = 0, .cursorY = 0, .bottomIndex = 0, .bottomOffset = 1, .backgroundColour = bc_ptr, .foregroundColour = fc_ptr, .currentBackgroundColour=null, .currentForegroundColour=null, .scrollback = sb_ptr, .screen = s_ptr };
+        return text_buffer{ .width = w, .height = h, .cursorX = 0, .cursorY = 0, .savedCursorX = 0, .savedCursorY = 0, .bottomIndex = 0, .bottomOffset = 1, .backgroundColour = bc_ptr, .foregroundColour = fc_ptr, .currentBackgroundColour=null, .currentForegroundColour=null, .scrollback = sb_ptr, .screen = s_ptr };
     }
 
     pub fn deinit(self: *text_buffer, gpa: std.mem.Allocator) void {
@@ -392,6 +394,16 @@ pub const text_buffer = struct {
         try self.setCursorX(vals.x, gpa);
 
         // std.debug.print("Screen Pos: ({}, {}), Logical Pos: ({}, {}), Cursor Pos: ({}, {})\n", .{screenX, screenY, vals.x, vals.y, self.cursorX, self.cursorY});
+    }
+
+    pub fn saveCursorPos(self: *text_buffer) void {
+        self.savedCursorX = self.cursorX;
+        self.savedCursorY = self.cursorY;
+    }
+
+    pub fn loadCursorPos(self: *text_buffer) void {
+        self.cursorX = self.savedCursorX;
+        self.cursorY = self.savedCursorY;
     }
 
     // =============== BUFFER MANIPULATION ==================

@@ -52,6 +52,7 @@ pub const ansi_parser = struct {
     }
 
     pub fn parse(self: *ansi_parser, pts: *pty.PTY, gpa: std.mem.Allocator) !void {
+        self.state = parser_state.NORMAL;
         while(true) {
             const n = termz_c.read(pts.master, &self.bytes[0], self.bytes.len);
             //Data to read
@@ -80,6 +81,7 @@ pub const ansi_parser = struct {
                                 @intFromEnum(fe_escape_sequences.CSI) => {self.state = parser_state.ESCAPE_CSI; args.clearRetainingCapacity();},
                                 else => {
                                     std.debug.print("Unsupported Code: {c}\n", .{b});
+                                    return;
                                     // const error_msg = " Unsupported Code " ++ b;
                                     // for(0..error_msg.len) |c| {
                                     //     _=try self.text_buf.insertText(c, gpa);
@@ -246,5 +248,10 @@ pub const ansi_parser = struct {
                 }
             }
         }
+    }
+
+    //Should be used to do a test run of the instructions from the pty to find any codes we are not familiar with
+    fn test_parse(self: *ansi_parser) bool {
+        _=self;
     }
 };

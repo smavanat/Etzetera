@@ -25,14 +25,34 @@ pub const TrailFlag = enum(u2) {
 ///      a bool[] representing the style flag of the cell
 ///      a TrailFlag representing the type of the cell
 pub const character_cell = struct {
-    char: u8,
-    style: [@intFromEnum(Style.NUM_STYLES)]bool,
     backgroundColour: ?*mu.vec4,
     foregroundColour: ?*mu.vec4,
+    char: u8,
+    style: [@intFromEnum(Style.NUM_STYLES)]bool,
     trailFlag: TrailFlag,
 
-    pub fn init(c: u8) !character_cell {
+    pub fn init(c: u8) character_cell {
         return character_cell{ .char = c, .style = .{false, false, false}, .backgroundColour = null, .foregroundColour = null, .trailFlag = TrailFlag.NORMAL };
+    }
+
+    pub fn initWithColour(c: u8, fc: *mu.vec4, bc: *mu.vec4) character_cell {
+        return character_cell{ .char = c, .style = .{false, false, false}, .backgroundColour = bc, .foregroundColour = fc, .trailFlag = TrailFlag.NORMAL };
+    }
+
+    pub fn copy(self: *character_cell, other: character_cell) void {
+        self.backgroundColour = other.backgroundColour;
+        self.foregroundColour = other.foregroundColour;
+        self.char = other.char;
+        self.style = other.style;
+        self.trailFlag = other.trailFlag;
+    }
+
+    pub fn erase(self: *character_cell) void {
+        self.backgroundColour = null;
+        self.foregroundColour = null;
+        self.char = 0;
+        self.style = .{false, false, false};
+        self.trailFlag = TrailFlag.NORMAL;
     }
 };
 
@@ -51,7 +71,7 @@ const terminal_line = struct {
         //will usually be small anyway, it shouldn't be that much wasted memory
         for(0..width) |i| {
             _=i;
-            try ch_ptr.append(gpa, try character_cell.init(0));
+            try ch_ptr.append(gpa, character_cell.init(0));
         }
         return terminal_line{ .characters = ch_ptr, .wrapped = wrap };
     }
@@ -100,7 +120,7 @@ const scroll_line = struct {
         if(pos > self.characters.items.len) {
             for(self.characters.items.len..pos) |i| {
                 _=i;
-                try self.characters.append(gpa, try character_cell.init(0));
+                try self.characters.append(gpa, character_cell.init(0));
             }
         }
 
@@ -112,7 +132,7 @@ const scroll_line = struct {
     /// current end of the line and the overwritten character
     pub fn overwrite(self: *scroll_line, pos: u32, ch: u8, gpa: std.mem.Allocator) !void {
         if(pos >= self.characters.items.len) {
-            try self.insert(pos, try character_cell.init(ch), gpa);
+            try self.insert(pos, character_cell.init(ch), gpa);
         }
         else {
             self.characters.items[pos].char = ch;
@@ -123,7 +143,7 @@ const scroll_line = struct {
     /// Removes an element from this line
     /// Also removes all empty padding cells stored in this line before this character until it reaches the next filled character cell
     /// Returns the original character cell removed
-    pub fn delete(self: *scroll_line, pos: u32) !character_cell {
+    pub fn delete(self: *scroll_line, pos: u32) character_cell {
         if(pos >= self.characters.items.len) return character_cell.init(0); //Early exit if the cell we are removing is beyond the size of this line.
 
         const ret = self.characters.orderedRemove(@intCast(pos));
@@ -178,8 +198,10 @@ pub const text_buffer = struct {
     cursorY: u32,
     bottomIndex: u32, //Index of the bottom line on the screen in the scrollback
     bottomOffset: u32, //How many on-screen lines the bottom line currently takes up (could be less than its full size if its paritally on the screen)
-    backgroundColour: *mu.vec4,
-    foregroundColour: *mu.vec4,
+    backgroundColour: *mu.vec4, //Default background colour of the screen
+    foregroundColour: *mu.vec4, //Default foreground colour of the screen
+    currentBackgroundColour: ?*mu.vec4, //Background colour set by the pty
+    currentForegroundColour: ?*mu.vec4, //Foreground colour set by the pty
     scrollback: *std.ArrayList(*scroll_line),
     screen: *ca.CircularArray(*terminal_line, null),
 
@@ -211,7 +233,7 @@ pub const text_buffer = struct {
         const fc_ptr = try gpa.create(mu.vec4);
         fc_ptr.* = mu.vec4.init(1.0, 1.0, 1.0, 1.0);
 
-        return text_buffer{ .width = w, .height = h, .cursorX = 0, .cursorY = 0, .bottomIndex = 0, .bottomOffset = 1, .backgroundColour = bc_ptr, .foregroundColour = fc_ptr, .scrollback = sb_ptr, .screen = s_ptr };
+        return text_buffer{ .width = w, .height = h, .cursorX = 0, .cursorY = 0, .bottomIndex = 0, .bottomOffset = 1, .backgroundColour = bc_ptr, .foregroundColour = fc_ptr, .currentBackgroundColour=null, .currentForegroundColour=null, .scrollback = sb_ptr, .screen = s_ptr };
     }
 
     pub fn deinit(self: *text_buffer, gpa: std.mem.Allocator) void {
@@ -421,7 +443,7 @@ pub const text_buffer = struct {
 
                 //Copy the next batch of characters over onto this line
                 for(0..@min(self.width, sline.characters.items.len-line_x)) |x| {
-                    tline.characters.items[x].char = sline.characters.items[line_x+x].char;
+                    tline.characters.items[x].copy(sline.characters.items[line_x+x]);
                 }
                 line_x += self.width; //Increment the x position
                 self.bottomOffset += 1;
@@ -450,7 +472,7 @@ pub const text_buffer = struct {
                 const cap = @min(self.width, line_x); //The capacity that this line can be filled to
                 //Fill the line backwards
                 for(1..cap) |x| {
-                    tline.characters.items[cap-x].char = sline.characters.items[line_x-x].char;
+                    tline.characters.items[cap-x].copy(sline.characters.items[line_x-x]);
                 }
                 line_x -= self.width; //Move the x position back
                 self.bottomOffset -= 1;
@@ -532,7 +554,7 @@ pub const text_buffer = struct {
         const sline: *scroll_line = self.scrollback.items[self.cursorY];
         var tline: *terminal_line = self.screen.get(self.getScreenCursorY());
 
-        const ch_ptr = try character_cell.init(text);
+        const ch_ptr = character_cell.init(text);
         var line_y = self.getScreenCursorY();
         try sline.insert(self.cursorX, ch_ptr, gpa);
         try tline.characters.insert(gpa, self.getScreenCursorX(), ch_ptr);
@@ -584,17 +606,17 @@ pub const text_buffer = struct {
 
         self.cursorX -= 1;
         var tline: *terminal_line = self.screen.get(self.getScreenCursorY());
-        _=try sline.delete(self.cursorX);
+        _=sline.delete(self.cursorX);
         _=tline.characters.orderedRemove(self.getScreenCursorX());
 
         var line_y = self.getScreenCursorY();
-        var end_ch = if(line_y < self.height-1 and self.screen.get(line_y+1).wrapped) self.screen.get(line_y+1).characters.orderedRemove(0) else try character_cell.init(0);
+        var end_ch = if(line_y < self.height-1 and self.screen.get(line_y+1).wrapped) self.screen.get(line_y+1).characters.orderedRemove(0) else character_cell.init(0);
 
         while(end_ch.char != 0) {
             try tline.characters.append(gpa, end_ch);
             line_y += 1;
             tline = self.screen.get(line_y);
-            end_ch = if(line_y < self.height-1 and self.screen.get(line_y+1).wrapped) self.screen.get(line_y+1).characters.orderedRemove(0) else try character_cell.init(0);
+            end_ch = if(line_y < self.height-1 and self.screen.get(line_y+1).wrapped) self.screen.get(line_y+1).characters.orderedRemove(0) else  character_cell.init(0);
         }
         return true;
     }
@@ -731,7 +753,7 @@ pub const text_buffer = struct {
                 tline_ptr = self.screen.get(@intCast(tline_index - (num_lines - i-1)));
 
                 for(i * self.width..@min((i+1)*self.width, sline_ptr.characters.items.len)) |x| {
-                    tline_ptr.characters.items[x - (i * self.width)].char = sline_ptr.characters.items[x].char;
+                    tline_ptr.characters.items[x - (i * self.width)].copy(sline_ptr.characters.items[x]);
                 }
             }
 

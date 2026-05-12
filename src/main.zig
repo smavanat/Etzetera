@@ -143,7 +143,7 @@ pub fn main() !void {
     if(init(&gw)) {
         std.debug.print("Initialised\n", .{});
 
-        _=std.os.linux.fcntl(pts.master, termz_c.F_SETFL, termz_c.O_NONBLOCK);
+        _=try std.posix.fcntl(pts.master, termz_c.F_SETFL, termz_c.O_NONBLOCK);
 
         while(glfw.glfwWindowShouldClose(gw) == 0) {
             ansi_p.parse(pts, gpa.allocator()) catch break;

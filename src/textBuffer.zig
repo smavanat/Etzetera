@@ -692,11 +692,11 @@ pub const text_buffer = struct {
             for(line.minXPos..line.characters.items.len) |i|{
                 charBuf[i-line.minXPos] = line.characters.items[i].char;
             }
-            const n = std.os.linux.write(pts.master, @ptrCast(&charBuf[0]), line.characters.items.len-line.minXPos);
+            const n = pts.write(charBuf);
             std.debug.print("Wrote {} bytes\n", .{n});
             gpa.free(charBuf);
         }
-        const n2 = std.os.linux.write(pts.master, "\n", 1);
+        const n2 = pts.write("\n");
         std.debug.print("Wrote newline: {}\n", .{n2});
     }
 

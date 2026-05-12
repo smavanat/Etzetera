@@ -2,7 +2,7 @@ const std = @import("std");
 const imports = @import("imports.zig");
 const termz_c = imports.termz_c;
 
-const SHELL = "/bin/bash";
+// const SHELL = "/bin/bash";
 extern fn posix_openpt(flags: c_int) c_int;
 extern fn grantpt(fd: c_int) c_int;
 extern fn unlockpt(fd: c_int) c_int;
@@ -81,10 +81,27 @@ pub const PTY = struct {
             _ = std.os.linux.dup2(self.slave, 2);
             if (self.slave > 2) _ = std.os.linux.close(self.slave);
 
-            const args = [_:null][*c]const u8{ "-" ++ SHELL, null };
-            // const env = [_:null][*c]const u8{ "TERM=dumb", "PATH=/usr/local/bin:/usr/bin:/bin", "HOME=/root", null };
-            const env = [_:null][*c]const u8{ "TERM=vt100", "PATH=/usr/local/bin:/usr/bin:/bin", "HOME=/root", null };
-            _ = std.os.linux.execve(SHELL, @ptrCast(&args), @ptrCast(&env));
+            const shell = std.posix.getenv("SHELL") orelse "bin/sh";
+
+            var login_name_buf: [256]u8 = undefined;
+            const login_name = std.fmt.bufPrintZ(&login_name_buf, "-{s}", .{shell}) catch "/bin/sh";
+            //Pass in the arguments to execve so that we get a login shell (identified with '-')
+            const args = [_:null][*c]const u8{ login_name.ptr, null };
+
+            //Build env: copy parent environ, replacing TERM
+            var env_buf: [256][*c]const u8 = undefined;
+            var env_length: usize = 0;
+            for(std.os.environ) |entry| {
+                if(std.mem.startsWith(u8, std.mem.span(entry), "TERM=")) continue; //skip existing term
+                if(env_length >= env_buf.len - 2) break; //Leave space for TERM and null terminator
+                env_buf[env_length] = entry;
+                env_length += 1;
+            }
+            env_buf[env_length] = "TERM=VT100";
+            env_length += 1;
+            env_buf[env_length] = null;
+
+            _ = std.os.linux.execve(shell.ptr, @ptrCast(&args), @ptrCast(&env_buf));
 
             // If we get here execve failed
             const fail_msg = "execve failed\n";
@@ -101,7 +118,11 @@ pub const PTY = struct {
     }
 
     /// Writes a message to the pty and returns the number of bytes written
-    pub fn write(self: *PTY, msg: []u8) usize {
-        return std.os.linux.write(self.master, @ptrCast(&msg[0]), msg.len);
+    pub fn write(self: *PTY, msg: []const u8) usize {
+        // return std.os.linux.write(self.master, msg.ptr, msg.len);
+        std.debug.print("PTY.write: master={}, len={}, msg={s}\n", .{self.master, msg.len, msg});
+        const n = std.os.linux.write(self.master, msg.ptr, msg.len);
+        std.debug.print("PTY.write: wrote {} bytes\n", .{n});
+        return n;
     }
 };

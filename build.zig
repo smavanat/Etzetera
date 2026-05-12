@@ -83,16 +83,13 @@ pub fn build(b: *std.Build) void {
     // by passing `--prefix` or `-p`.
     b.installArtifact(exe);
 
-    // TODO: FINISH THIS WORK IN PROGESS
     //Copy data files:
-    // const copy_data_step = b.step("copy_data", "Copy data folder into zig-out");
-    // copy_data_step.dependOn(&exe.step);
-    // copy_data_step.execFn = fn (step: *std.Build.Step) !void {
-    //     const data_src = "data";
-    //     const dest_dir = b.dest_dir orelse return;
-    //     const data_dst = std.fs.path.join(b.allocator, &.{dest_dir, "data"}) catch return;
-    //     futils.copyDir(data_src, data_dst, b.allocator) catch return;
-    // };
+    const install_data = b.addInstallDirectory(.{
+        .source_dir = b.path("data"),
+        .install_dir = .prefix,
+        .install_subdir = "data",
+    });
+    b.getInstallStep().dependOn(&install_data.step);
 
     // This creates a top level step. Top level steps have a name and can be
     // invoked by name when running `zig build` (e.g. `zig build run`).

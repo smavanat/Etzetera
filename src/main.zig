@@ -26,15 +26,6 @@ var pts: *pty.PTY = undefined;
 var ansi_p : *ap.ansi_parser = undefined;
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
-//TODO: PARSE ANSI CODES - COLOURS, CURSOR POSITION, VT100 COMPATABILITY
-//      PARSE UNICODE
-//      SYNTAX HIGHLIGHTING
-//      CROSS PLATFORM SUPPORT
-//      CLIPBOARD SUPPORT
-//      MAKE THE minXPos PROPERTY ACTUALLY USABLE -> Add cwd before start of line
-
-//BUG: WHEN DELETING A CHARACTER FROM A LINE THAT WRAPS OFF OF THE BOTTOM OF THE SCREEN, FRESH CHARACTERS WILL NOT BE PULLED IN
-
 fn framebufferSizeCallback(window: ?*glfw.GLFWwindow, width: i32, height: i32) callconv(.c) void {
     if(glad.glad_glViewport) |glViewport|{
         glViewport(0, 0, width, height);
@@ -112,7 +103,7 @@ fn init(window: *?*glfw.GLFWwindow) bool {
         return false;
     }
 
-    _ = freetype.FT_Set_Pixel_Sizes(face, 0, 20); //Setting the pixel font size we would like to get from the face
+    _ = freetype.FT_Set_Pixel_Sizes(face, 0, 16); //Setting the pixel font size we would like to get from the face
 
     //Initialising the text renderer
     tRenderer = tr.renderer.init(gpa.allocator(), face, &atls) catch return false;

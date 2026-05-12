@@ -2,7 +2,7 @@ const std = @import("std");
 const imports = @import("imports.zig");
 const termz_c = imports.termz_c;
 
-const SHELL = "/bin/dash";
+const SHELL = "/bin/bash";
 extern fn posix_openpt(flags: c_int) c_int;
 extern fn grantpt(fd: c_int) c_int;
 extern fn unlockpt(fd: c_int) c_int;

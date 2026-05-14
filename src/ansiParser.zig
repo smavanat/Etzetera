@@ -38,7 +38,8 @@ pub const escape_sequences = enum (u8) {
 const parser_state = enum (u4) {
     NORMAL,
     ESCAPE,
-    ESCAPE_CSI
+    ESCAPE_CSI,
+    ESCAPE_OSC,
 };
 
 pub fn getErrno() i32 {
@@ -95,11 +96,17 @@ pub const ansi_parser = struct {
                                     try self.text_buf.screenToLogical(@intCast(newY), self.text_buf.getScreenCursorX(), gpa);
                                 },
                                 @intFromEnum(escape_sequences.CSI) => {self.state = parser_state.ESCAPE_CSI; args.clearRetainingCapacity();},
+                                @intFromEnum(escape_sequences.OSC) => {self.state = parser_state.ESCAPE_OSC; args.clearRetainingCapacity();},
+                                @intFromEnum(escape_sequences.ST) => {self.state = parser_state.ESCAPE_OSC; args.clearRetainingCapacity();},
                                 else => {
                                     std.debug.print("Unsupported Code: {c}\n", .{b});
                                     self.state = parser_state.NORMAL;
                                 }
                             }
+                        }
+                        else if (self.state == parser_state.ESCAPE_OSC) {
+                            if(b == @intFromEnum(c0_controls.BEL)) {self.state = parser_state.NORMAL; args.clearRetainingCapacity();}
+                            if(b == @intFromEnum(c0_controls.ESC)) {self.state = parser_state.ESCAPE; args.clearRetainingCapacity();}
                         }
                         else if(self.state == parser_state.ESCAPE_CSI) {
                             //Parameter byte
@@ -256,11 +263,24 @@ pub const ansi_parser = struct {
 
                                     //========================= COLOUR/GRAPHICS MODES ================================
                                     'm' => {
-                                        //TODO: FIX THIS IS WRONG
+                                        var sp_bg: u8 = 0;
+                                        var sp_fg: u8 = 0;
 
-                                        //========== STYLE MODES ===========
-                                        if(args.items.len == 1) {
-                                            switch(args.items[0]) {
+                                        for(args.items[0..args.items.len]) |i| {
+                                            if(sp_bg == 5) {
+                                                self.text_buf.backgroundColour = c_256(@intCast(i));
+                                                sp_bg = 0;
+                                                continue;
+                                            }
+                                            if(sp_fg == 5) {
+                                                self.text_buf.foregroundColour = c_256(@intCast(i));
+                                                sp_fg = 0;
+                                                continue;
+                                            }
+
+                                            switch(i) {
+                                                // ========= STYLE CODES =========
+
                                                 //SET CODES
 
                                                 //ESC[1m: Set bold mode
@@ -272,7 +292,11 @@ pub const ansi_parser = struct {
                                                 //ESC[4m: Set underline mode
                                                 4 => {},
                                                 //ESC[5m: Set blinking mode
-                                                5 => {},
+                                                5 => {
+                                                    //For xterm-256 colours
+                                                    if(sp_fg == 1) sp_fg = 5;
+                                                    if(sp_bg == 1) sp_bg = 5;
+                                                },
                                                 //ESC[7m: Set inverse/reverse mode
                                                 7 => {},
                                                 //ESC[8m: Set hidden/invisible mode
@@ -302,15 +326,89 @@ pub const ansi_parser = struct {
                                                 //ESC[29m: Reset strikethrough mode
                                                 29 => {},
 
+                                                //========= COLOUR CODES ==========
+
+                                                //ESC[30m: Set foreground to Black
+                                                30 => {self.text_buf.currentForegroundColour = tb.basic_colours[0];},
+                                                //ESC[31m: Set foreground to Red
+                                                31 => {self.text_buf.currentForegroundColour = tb.basic_colours[1];},
+                                                //ESC[32m: Set foreground to Green
+                                                32 => {self.text_buf.currentForegroundColour = tb.basic_colours[2];},
+                                                //ESC[33m: Set foreground to Yellow
+                                                33 => {self.text_buf.currentForegroundColour = tb.basic_colours[3];},
+                                                //ESC[34m: Set foreground to Blue
+                                                34 => {self.text_buf.currentForegroundColour = tb.basic_colours[4];},
+                                                //ESC[35m: Set foreground to Magenta
+                                                35 => {self.text_buf.currentForegroundColour = tb.basic_colours[5];},
+                                                //ESC[36m: Set foreground to Cyan
+                                                36 => {self.text_buf.currentForegroundColour = tb.basic_colours[6];},
+                                                //ESC[37m: Set foreground to White
+                                                37 => {self.text_buf.currentForegroundColour = tb.basic_colours[7];},
+                                                //ESC[38m: Set foreground using xterm-256 or RGB
+                                                38 => {sp_fg = 1;},
+                                                //ESC[39m: Set foreground to default
+                                                39 => {self.text_buf.currentForegroundColour = self.text_buf.foregroundColour;},
+
+                                                //ESC[40m: Set background to Black
+                                                40 => {self.text_buf.currentBackgroundColour = tb.basic_colours[0];},
+                                                //ESC[41m: Set background to Red
+                                                41 => {self.text_buf.currentBackgroundColour = tb.basic_colours[1];},
+                                                //ESC[42m: Set background to Green
+                                                42 => {self.text_buf.currentBackgroundColour = tb.basic_colours[2];},
+                                                //ESC[43m: Set background to Yellow
+                                                43 => {self.text_buf.currentBackgroundColour = tb.basic_colours[3];},
+                                                //ESC[44m: Set background to Blue
+                                                44 => {self.text_buf.currentBackgroundColour = tb.basic_colours[4];},
+                                                //ESC[45m: Set background to Magenta
+                                                45 => {self.text_buf.currentBackgroundColour = tb.basic_colours[5];},
+                                                //ESC[46m: Set background to Cyan
+                                                46 => {self.text_buf.currentBackgroundColour = tb.basic_colours[6];},
+                                                //ESC[47m: Set background to White
+                                                47 => {self.text_buf.currentBackgroundColour = tb.basic_colours[7];},
+                                                //ESC[48m: Set background using xterm-256 or RGB
+                                                48 => {sp_bg = 1;},
+                                                //ESC[49m: Set background to default
+                                                49 => {self.text_buf.currentBackgroundColour = self.text_buf.backgroundColour;},
+
+                                                //ESC[90m: Set foreground to Bright Black
+                                                90 => {self.text_buf.currentForegroundColour = tb.basic_colours[8];},
+                                                //ESC[91m: Set foreground to Bright Red
+                                                91 => {self.text_buf.currentForegroundColour = tb.basic_colours[9];},
+                                                //ESC[92m: Set foreground to Bright Green
+                                                92 => {self.text_buf.currentForegroundColour = tb.basic_colours[10];},
+                                                //ESC[93m: Set foreground to Bright Yellow
+                                                93 => {self.text_buf.currentForegroundColour = tb.basic_colours[11];},
+                                                //ESC[94m: Set foreground to Bright Blue
+                                                94 => {self.text_buf.currentForegroundColour = tb.basic_colours[12];},
+                                                //ESC[95m: Set foreground to Bright Magenta
+                                                95 => {self.text_buf.currentForegroundColour = tb.basic_colours[13];},
+                                                //ESC[96m: Set foreground to Bright Cyan
+                                                96 => {self.text_buf.currentForegroundColour = tb.basic_colours[14];},
+                                                //ESC[97m: Set foreground to Bright White
+                                                97 => {self.text_buf.currentForegroundColour = tb.basic_colours[15];},
+
+                                                //ESC[100m: Set background to Bright Black
+                                                100 => {self.text_buf.currentBackgroundColour = tb.basic_colours[8];},
+                                                //ESC[101m: Set background to Bright Red
+                                                101 => {self.text_buf.currentBackgroundColour = tb.basic_colours[9];},
+                                                //ESC[102m: Set background to Bright Green
+                                                102 => {self.text_buf.currentBackgroundColour = tb.basic_colours[10];},
+                                                //ESC[103m: Set background to Bright Yellow
+                                                103 => {self.text_buf.currentBackgroundColour = tb.basic_colours[11];},
+                                                //ESC[104m: Set background to Bright Blue
+                                                104 => {self.text_buf.currentBackgroundColour = tb.basic_colours[12];},
+                                                //ESC[105m: Set background to Bright Magenta
+                                                105 => {self.text_buf.currentBackgroundColour = tb.basic_colours[13];},
+                                                //ESC[106m: Set background to Bright Cyan
+                                                106 => {self.text_buf.currentBackgroundColour = tb.basic_colours[14];},
+                                                //ESC[107m: Set background to Bright White
+                                                107 => {self.text_buf.currentBackgroundColour = tb.basic_colours[15];},
+
                                                 else =>{}
                                             }
                                         }
-                                        //============= XTERM-256 COLOUR MODES =============
-                                        else if(args.items.len == 3) {
-                                            const cl: tb.colour = c_256(@intCast(args.items[2]));
-                                            if(args.items[0] == 38 and args.items[1] == 5) self.text_buf.currentForegroundColour = cl;
-                                            if(args.items[0] == 48 and args.items[1] == 5) self.text_buf.currentBackgroundColour = cl;
-                                        }
+
+                                        args.clearRetainingCapacity();
                                     },
 
                                     else => {}

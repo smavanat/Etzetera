@@ -97,7 +97,7 @@ pub const PTY = struct {
                 env_buf[env_length] = entry;
                 env_length += 1;
             }
-            env_buf[env_length] = "TERM=VT100";
+            env_buf[env_length] = "TERM=xterm-256color";
             env_length += 1;
             env_buf[env_length] = null;
 

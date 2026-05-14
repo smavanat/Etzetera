@@ -184,8 +184,8 @@ pub const renderer = struct {
                 const h: f32 = @as(f32, @floatFromInt(at.cell_h));
 
                 //If we are at the cursor's position, swap the foreground and background characters
-                const fg = if(is_cursor) tex_buf.backgroundColour else tex_buf.foregroundColour;
-                const bg = if(is_cursor) tex_buf.foregroundColour else tex_buf.backgroundColour;
+                const fg = if(is_cursor) tex_buf.currentBackgroundColour else tex_buf.currentForegroundColour;
+                const bg = if(is_cursor) tex_buf.currentForegroundColour else tex_buf.currentBackgroundColour;
 
                 glad.glUniform4f(glad.glGetUniformLocation(@intCast(self.shader), "bgColor"),
                     @as(f32, @floatFromInt(bg[0])) / 256.0,

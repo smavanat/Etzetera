@@ -306,7 +306,7 @@ pub const text_buffer = struct {
         // Add how far into the cursor line's wrapped segments we are
         screenY += self.cursorX / self.width;
 
-        return @max(0, @min(screenY, self.height - 1)); //Clamp the value
+        return @min(screenY, self.height - 1); //Clamp the value
     }
 
     /// Sets the height of the screen and rebuilds the layout
@@ -574,12 +574,14 @@ pub const text_buffer = struct {
     /// If inserting the input at the current position would overlap with other wide characters, erase them first
     /// @param text the new character to add
     pub fn insertText(self: *text_buffer, text: u8, gpa: std.mem.Allocator) !void {
+        // std.debug.print("(Before) Cursor X: {}, Cursor Y: {}, SCursor X: {}, S CursorY: {}\n", .{self.cursorX, self.cursorY, self.getScreenCursorX(), self.getScreenCursorY()});
         const sline: *scroll_line = self.scrollback.items[self.cursorY];
         var tline: *terminal_line = self.screen.get(self.getScreenCursorY());
 
         const ch_ptr = character_cell.initWithColour(text, self.currentForegroundColour, self.currentBackgroundColour);
         var line_y = self.getScreenCursorY();
         try sline.insert(self.cursorX, ch_ptr, gpa);
+        // std.debug.print("Terminal Line length: {}\n", .{tline.characters.items.len});
         try tline.characters.insert(gpa, self.getScreenCursorX(), ch_ptr);
 
         var end_ch = tline.characters.orderedRemove(tline.characters.items.len-1);
@@ -596,7 +598,13 @@ pub const text_buffer = struct {
             end_ch = tline.characters.orderedRemove(tline.characters.items.len-1); //Update the new end char
         }
 
+        //If we are at the bottom index, should adjust the bottom offset so that the screen y pos updates correctly
+        //TODO: Fix as assumes currently that all writes happen at the bottom of the page, and does not account for the bottom line getting pushed off
+        if(self.cursorY == self.bottomIndex) self.bottomOffset = self.logicalToTerminal(self.bottomIndex);
+
         try self.moveCursorX(1, false, gpa);
+
+        // std.debug.print("(After) Cursor X: {}, Cursor Y: {}, SCursor X: {}, S CursorY: {}\n", .{self.cursorX, self.cursorY, self.getScreenCursorX(), self.getScreenCursorY()});
     }
 
     /// Overwrites text at the cursor's current position
@@ -616,6 +624,9 @@ pub const text_buffer = struct {
 
         //Move the character
         try self.moveCursorX(1, false, gpa);
+        //If we are at the bottom index, should adjust the bottom offset so that the screen y pos updates correctly
+        //TODO: Fix as assumes currently that all writes happen at the bottom of the page, and does not account for the bottom line getting pushed off
+        if(self.cursorY == self.bottomIndex) self.bottomOffset = self.logicalToTerminal(self.bottomIndex);
     }
 
     /// Moves the cursor left one position and removes the character at the cursor's new position
@@ -626,9 +637,6 @@ pub const text_buffer = struct {
         const sline: *scroll_line = self.scrollback.items[self.cursorY];
         if(self.cursorX <= 0 or self.cursorX <= sline.minXPos) return false;
 
-        //If moving back into the previous line after erasure, set the current line to no longer wrap from its predecessor
-        if(self.getScreenCursorX() == 0) self.screen.get(self.getScreenCursorY()).wrapped = false;
-
         self.cursorX -= 1;
         var tline: *terminal_line = self.screen.get(self.getScreenCursorY());
         _=sline.delete(self.cursorX);
@@ -637,12 +645,22 @@ pub const text_buffer = struct {
         var line_y = self.getScreenCursorY();
         var end_ch = if(line_y < self.height-1 and self.screen.get(line_y+1).wrapped) self.screen.get(line_y+1).characters.orderedRemove(0) else character_cell.init(0);
 
-        while(end_ch.char != 0) {
+        while(true) {
             try tline.characters.append(gpa, end_ch);
             line_y += 1;
+            end_ch = if(line_y < self.height-1 and self.screen.get(line_y+1).wrapped) self.screen.get(line_y+1).characters.orderedRemove(0) else character_cell.init(0);
             tline = self.screen.get(line_y);
-            end_ch = if(line_y < self.height-1 and self.screen.get(line_y+1).wrapped) self.screen.get(line_y+1).characters.orderedRemove(0) else  character_cell.init(0);
+            if(end_ch.char == 0 or line_y >= self.height) {
+                //The line after the bottom one should no longer wrap
+                if(tline.characters.items.len < 80) try tline.characters.append(gpa, end_ch); // append null to current line
+                if(line_y < self.height - 1) self.screen.get(line_y+1).wrapped = false;
+                break;
+            }
         }
+        if(self.screen.get(line_y+1).characters.items.len < 80) try self.screen.get(line_y+1).characters.append(gpa, character_cell.init(0));
+        //If we are at the bottom index, should adjust the bottom offset so that the screen y pos updates correctly
+        //TODO: Fix as assumes currently that all writes happen at the bottom of the page, and does not account for the bottom line getting pushed off
+        if(self.cursorY == self.bottomIndex) self.bottomOffset = self.logicalToTerminal(self.bottomIndex);
         return true;
     }
 

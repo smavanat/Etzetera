@@ -66,7 +66,7 @@ pub const ansi_parser = struct {
                 defer args.deinit(gpa);
 
                 for(self.bytes[0..@intCast(n)]) |b| {
-                    std.debug.print("{x} ", .{b});
+                    std.debug.print("{x:0>2} ", .{b});
                     if(b != 0) {
                         if(self.state == parser_state.NORMAL) {
                             switch(b) {
@@ -99,7 +99,7 @@ pub const ansi_parser = struct {
                                 @intFromEnum(escape_sequences.OSC) => {self.state = parser_state.ESCAPE_OSC; args.clearRetainingCapacity();},
                                 @intFromEnum(escape_sequences.ST) => {self.state = parser_state.NORMAL; args.clearRetainingCapacity();},
                                 else => {
-                                    std.debug.print("Unsupported Code: {c}\n", .{b});
+                                    std.debug.print("Unsupported Code: {x:0>2}\n", .{b});
                                     self.state = parser_state.NORMAL;
                                 }
                             }
@@ -132,6 +132,7 @@ pub const ansi_parser = struct {
                                         if(args.items.len == 0) {
                                             try self.text_buf.screenToLogical(0, 0, gpa);
                                             args.clearRetainingCapacity();
+                                            std.debug.print("CursorX: {}, CursorY: {}\n", .{self.text_buf.cursorX, self.text_buf.cursorY});
                                         }
                                         if(args.items.len >= 2) {
                                             try self.text_buf.screenToLogical(args.items[args.items.len-2], args.items[args.items.len-1], gpa);
@@ -224,22 +225,22 @@ pub const ansi_parser = struct {
                                         //ESC[J/ESC[0J: Erase from cursor until end of screen
                                         if(args.items.len == 0 or args.items[args.items.len-1] == 0) {
                                             try self.text_buf.eraseText(.{.x=self.text_buf.getScreenCursorX(), .y=self.text_buf.getScreenCursorY()}, .{.x=self.text_buf.width-1, .y=self.text_buf.height-1});
-                                            std.debug.print("ESC[J\n", .{});
+                                            // std.debug.print("ESC[J\n", .{});
                                         }
                                         //ESC[1J: erase from cursor to beginning of screen
                                         else if(args.items[args.items.len-1] == 1) {
                                             try self.text_buf.eraseText(.{.x=0, .y=0}, .{.x=self.text_buf.getScreenCursorX(), .y=self.text_buf.getScreenCursorY()}, );
-                                            std.debug.print("ESC[1J\n", .{});
+                                            // std.debug.print("ESC[1J\n", .{});
                                         }
                                         //ESC[2J: erase entire screen
                                         else if(args.items[args.items.len-1] == 2) {
                                             try self.text_buf.clearScreen();
-                                            std.debug.print("ESC[2J\n", .{});
+                                            // std.debug.print("ESC[2J\n", .{});
                                         }
                                         //ESC[3J: erase saved lines
                                         else if(args.items[args.items.len-1] == 3) {
                                             try self.text_buf.clearScrollback(gpa);
-                                            std.debug.print("ESC[3J\n", .{});
+                                            // std.debug.print("ESC[3J\n", .{});
                                         }
                                         args.clearRetainingCapacity();
                                     },
@@ -247,17 +248,17 @@ pub const ansi_parser = struct {
                                         //ESC[K/ESC[0K: erase from cursor to end of line
                                         if(args.items.len == 0 or args.items[args.items.len-1] == 0) {
                                             try self.text_buf.eraseText(.{.x=self.text_buf.getScreenCursorX(), .y=self.text_buf.getScreenCursorY()}, .{.x=self.text_buf.width-1, .y=self.text_buf.getScreenCursorY()});
-                                            std.debug.print("ESC[K\n", .{});
+                                            // std.debug.print("ESC[K\n", .{});
                                         }
                                         //ESC[1K: erase start line to cursor
                                         else if(args.items[args.items.len-1] == 1) {
                                             try self.text_buf.eraseText(.{.x=0, .y=self.text_buf.getScreenCursorY()}, .{.x=self.text_buf.getScreenCursorX(), .y=self.text_buf.getScreenCursorY()}, );
-                                            std.debug.print("ESC[1K\n", .{});
+                                            // std.debug.print("ESC[1K\n", .{});
                                         }
                                         //ESC[2K: erase entire line
                                         else if(args.items[args.items.len-1] == 2) {
                                             try self.text_buf.eraseText(.{.x=0, .y=self.text_buf.getScreenCursorY()}, .{.x=self.text_buf.width-1, .y=self.text_buf.getScreenCursorY()}, );
-                                            std.debug.print("ESC[2K\n", .{});
+                                            // std.debug.print("ESC[2K\n", .{});
                                         }
                                     },
 
@@ -265,6 +266,7 @@ pub const ansi_parser = struct {
                                     'm' => {
                                         var sp_bg: u8 = 0;
                                         var sp_fg: u8 = 0;
+                                        var is_bold: bool = false;
 
                                         for(args.items[0..args.items.len]) |i| {
                                             // std.debug.print("{}\n", .{i});
@@ -285,7 +287,7 @@ pub const ansi_parser = struct {
                                                 //SET CODES
 
                                                 //ESC[1m: Set bold mode
-                                                1 => {},
+                                                1 => {is_bold = true;},
                                                 //ESC[2m: Set dim/faint mode
                                                 2 => {},
                                                 //ESC[3m: Set italic mode
@@ -311,9 +313,10 @@ pub const ansi_parser = struct {
                                                 0 => {
                                                     self.text_buf.currentBackgroundColour = self.text_buf.backgroundColour;
                                                     self.text_buf.currentForegroundColour = self.text_buf.foregroundColour;
+                                                    is_bold = false;
                                                 },
                                                 //ESC[22m: Reset bold mode/Reset dim/faint mode
-                                                22 => {},
+                                                22 => {is_bold = false;},
                                                 //ESC[23m: Reset italic mode
                                                 23 => {},
                                                 //ESC[24m: Reset underline mode
@@ -330,21 +333,21 @@ pub const ansi_parser = struct {
                                                 //========= COLOUR CODES ==========
 
                                                 //ESC[30m: Set foreground to Black
-                                                30 => {self.text_buf.currentForegroundColour = tb.basic_colours[0];},
+                                                30 => {self.text_buf.currentForegroundColour = if (!is_bold) tb.basic_colours[0] else tb.basic_colours[8];},
                                                 //ESC[31m: Set foreground to Red
-                                                31 => {self.text_buf.currentForegroundColour = tb.basic_colours[1];},
+                                                31 => {self.text_buf.currentForegroundColour = if (!is_bold) tb.basic_colours[1] else tb.basic_colours[9];},
                                                 //ESC[32m: Set foreground to Green
-                                                32 => {self.text_buf.currentForegroundColour = tb.basic_colours[2];},
+                                                32 => {self.text_buf.currentForegroundColour = if (!is_bold) tb.basic_colours[2] else tb.basic_colours[10];},
                                                 //ESC[33m: Set foreground to Yellow
-                                                33 => {self.text_buf.currentForegroundColour = tb.basic_colours[3];},
+                                                33 => {self.text_buf.currentForegroundColour = if (!is_bold) tb.basic_colours[3] else tb.basic_colours[11];},
                                                 //ESC[34m: Set foreground to Blue
-                                                34 => {self.text_buf.currentForegroundColour = tb.basic_colours[4];},
+                                                34 => {self.text_buf.currentForegroundColour = if (!is_bold) tb.basic_colours[4] else tb.basic_colours[12];},
                                                 //ESC[35m: Set foreground to Magenta
-                                                35 => {self.text_buf.currentForegroundColour = tb.basic_colours[5];},
+                                                35 => {self.text_buf.currentForegroundColour = if (!is_bold) tb.basic_colours[5] else tb.basic_colours[13];},
                                                 //ESC[36m: Set foreground to Cyan
-                                                36 => {self.text_buf.currentForegroundColour = tb.basic_colours[6];},
+                                                36 => {self.text_buf.currentForegroundColour = if (!is_bold) tb.basic_colours[6] else tb.basic_colours[14];},
                                                 //ESC[37m: Set foreground to White
-                                                37 => {self.text_buf.currentForegroundColour = tb.basic_colours[7];},
+                                                37 => {self.text_buf.currentForegroundColour = if (!is_bold) tb.basic_colours[7] else tb.basic_colours[15];},
                                                 //ESC[38m: Set foreground using xterm-256 or RGB
                                                 38 => {sp_fg = 1;},
                                                 //ESC[39m: Set foreground to default

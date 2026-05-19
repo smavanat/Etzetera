@@ -169,7 +169,7 @@ const scroll_line = struct {
         const ret = self.characters.orderedRemove(@intCast(pos));
 
         //If the cell removed is at the end of the line, keep removing all blank cells until we reach another filled one
-        if(pos == self.characters.items.len) {
+        if(pos == self.characters.items.len and self.characters.items.len > 0) {
             var i = self.characters.items.len-1;
             while(i >= 0) {
                 if(self.characters.items[i].char != 0) {
@@ -215,6 +215,7 @@ const scroll_line = struct {
 pub const text_buffer = struct {
     width: u32,
     height: u32,
+    scrollMax: u32, //How may lines can be stored in the scrollback
     cursorX: u32,
     cursorY: u32,
     savedCursorX: u32,
@@ -228,7 +229,7 @@ pub const text_buffer = struct {
     scrollback: *std.ArrayList(*scroll_line),
     screen: *ca.CircularArray(*terminal_line, null),
 
-    pub fn init(w: u32, h: u32, gpa: std.mem.Allocator) !text_buffer {
+    pub fn init(w: u32, h: u32, sm: u32, gpa: std.mem.Allocator) !text_buffer {
         const sb_ptr = try gpa.create(std.ArrayList(*scroll_line));
         sb_ptr.* = try std.ArrayList(*scroll_line).initCapacity(gpa, h * 2);
 
@@ -250,7 +251,7 @@ pub const text_buffer = struct {
             try s_ptr.addToFront(init_tline, gpa);
         }
 
-        return text_buffer{ .width = w, .height = h, .cursorX = 0, .cursorY = 0, .savedCursorX = 0, .savedCursorY = 0, .bottomIndex = 0, .bottomOffset = 1, .backgroundColour = basic_colours[0], .foregroundColour = basic_colours[15], .currentBackgroundColour = basic_colours[0], .currentForegroundColour = basic_colours[15], .scrollback = sb_ptr, .screen = s_ptr };
+        return text_buffer{ .width = w, .height = h, .scrollMax = sm, .cursorX = 0, .cursorY = 0, .savedCursorX = 0, .savedCursorY = 0, .bottomIndex = 0, .bottomOffset = 1, .backgroundColour = basic_colours[0], .foregroundColour = basic_colours[15], .currentBackgroundColour = basic_colours[0], .currentForegroundColour = basic_colours[15], .scrollback = sb_ptr, .screen = s_ptr };
     }
 
     pub fn deinit(self: *text_buffer, gpa: std.mem.Allocator) void {
@@ -512,7 +513,6 @@ pub const text_buffer = struct {
     /// Moves the cursor down one line, scrolling if necessary
     pub fn createNewLine(self: *text_buffer, gpa: std.mem.Allocator) !void {
         try self.addNewLine(gpa);
-        std.debug.print("Newline CursorY: {}\n", .{self.cursorY});
     }
 
     /// Clears the lines from the screen. Does not remove anything from the scrollback
@@ -702,7 +702,6 @@ pub const text_buffer = struct {
         if(ly >= self.scrollback.items.len) return;
 
         var sline: *scroll_line = self.scrollback.items[ly];
-        std.debug.print("Start Y: {}, End Y: {}\n", .{start_cell.y, end_cell.y+1});
 
         //Iterate over the screen lines
         for(start_cell.y..end_cell.y+1) |i| {
@@ -846,6 +845,11 @@ pub const text_buffer = struct {
         const nline_ptr = try gpa.create(scroll_line);
         nline_ptr.* = try scroll_line.init(self.width, gpa);
         try self.scrollback.insert(gpa, self.cursorY+1, nline_ptr);
+        while (self.scrollback.items.len > self.scrollMax) {
+            self.scrollback.items[0].deinit(gpa);
+            gpa.destroy(self.scrollback.items[0]);
+            _=self.scrollback.orderedRemove(0);
+        }
 
         if(self.cursorY == self.bottomIndex) try self.scroll(1, gpa);
 
@@ -862,7 +866,6 @@ pub const text_buffer = struct {
         //Clamp the given values
         const localScreenY = @max(0, @min(screenY, self.height-1));
         const localScreenX = @max(0, @min(screenX, self.width-1));
-        std.debug.print("LocalScreenY: {}\n", .{localScreenY});
 
         //The number of lines taken up by the current logical line.
         //Since we start at the bottom, this is bottomOffset since this is the line at bottom index
@@ -884,9 +887,6 @@ pub const text_buffer = struct {
         var logicalY  = self.bottomIndex;
         //The converted logical x position
         var logicalX: u32 = 0;
-        std.debug.print("Lines: {}\n", .{lines});
-        std.debug.print("screenPos: {}\n", .{screenPos});
-        std.debug.print("logicalY: {}\n", .{logicalY});
 
         while(logicalY >= self.getLogicalScreenTop()) {
             //If we have iterated over all of the lines,
@@ -905,6 +905,7 @@ pub const text_buffer = struct {
                 break;
             }
 
+            if(screenPos == 0) break;
             lines -= 1;
             screenPos -= 1;
         }

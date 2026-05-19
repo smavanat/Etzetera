@@ -15,12 +15,13 @@ const freetype = imports.termz_c_externals.freetype;
 
 const termz_c = imports.termz_c;
 
-const screen_width: u32 = 800;
+const screen_width: i32 = 800;
 const screen_height: u32 = 600;
 
 var gw: ?*glfw.GLFWwindow = null;
 var tRenderer: tr.renderer = undefined;
 var text_buf: *tb.text_buffer = undefined;
+var alt_buf: *tb.text_buffer = undefined;
 var atls: ?*tr.atlas = null;
 var pts: *pty.PTY = undefined;
 var ansi_p : *ap.ansi_parser = undefined;
@@ -37,6 +38,8 @@ fn framebufferSizeCallback(window: ?*glfw.GLFWwindow, width: i32, height: i32) c
         const cell_height: u32 = @max(1, @as(u32, @intCast(height))/atls.?.*.cell_h);
         text_buf.setWidth(cell_width, gpa.allocator()) catch return;
         text_buf.setHeight(cell_height, gpa.allocator()) catch return;
+        alt_buf.setWidth(cell_width, gpa.allocator()) catch return;
+        alt_buf.setHeight(cell_height, gpa.allocator()) catch return;
 
         _=pts.set_term_size(@intCast(cell_width), @intCast(cell_height), @intCast(width), @intCast(height));
     }
@@ -122,21 +125,26 @@ fn init(window: *?*glfw.GLFWwindow) bool {
     pts = gpa.allocator().create(pty.PTY) catch return false;
     pts.* = pty.PTY.init();
     if(!pts.pt_pair()) return false;
-    if(!pts.set_term_size(@intCast(screen_width/atls.?.*.cell_w), @intCast(screen_height/atls.?.*.cell_h), screen_width, 600)) return false;
+    if(!pts.set_term_size(80, 31, @intCast(atls.?.*.cell_w * 80), @intCast(atls.?.*.cell_h * 31))) return false;
     if(!pts.spawn()) return false;
 
     //Setting up the text buffer
     text_buf = gpa.allocator().create(tb.text_buffer) catch return false;
-    text_buf.* = tb.text_buffer.init(screen_width/atls.?.*.cell_w, screen_height/atls.?.*.cell_h, gpa.allocator()) catch return false;
-    std.debug.print("Width: {}, Height: {}\n", .{text_buf.width, text_buf.height});
+    text_buf.* = tb.text_buffer.init(80, 31, 10000, gpa.allocator()) catch return false;
+    // std.debug.print("Width: {}, Height: {}\n", .{text_buf.width, text_buf.height});
+    //Creating the alternate text buffer
+    alt_buf = gpa.allocator().create(tb.text_buffer) catch return false;
+    alt_buf.* = tb.text_buffer.init(80, 31, 1, gpa.allocator()) catch return false;
 
     //Loading the ansi parser:
     ansi_p = gpa.allocator().create(ap.ansi_parser) catch return false;
-    ansi_p.* = ap.ansi_parser.init(text_buf);
+    ansi_p.* = ap.ansi_parser.init(text_buf, alt_buf);
 
     //Freeing freetype's resources
     _ = freetype.FT_Done_Face(face);
     _ = freetype.FT_Done_FreeType(ft);
+
+    // framebufferSizeCallback(window.*, @intCast(atls.?.*.cell_w * 80), @intCast(atls.?.*.cell_h * 24));
 
     return true;
 }
@@ -175,6 +183,9 @@ pub fn main() !void {
 
         text_buf.deinit(gpa.allocator());
         gpa.allocator().destroy(text_buf);
+
+        alt_buf.deinit(gpa.allocator());
+        gpa.allocator().destroy(alt_buf);
 
         atls.?.deinit(gpa.allocator());
         gpa.allocator().destroy(atls.?);
